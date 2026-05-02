@@ -1,0 +1,42 @@
+@tailwind base;
+@tailwind components;
+@tailwind utilities;
+
+/* ── Base reset ── */
+*, *::before, *::after { box-sizing: border-box; }
+
+html { scroll-behavior: smooth; }
+
+body {
+  background: #05050a;
+  color: #e8e8f0;
+  min-height: 100dvh;
+  overflow-x: hidden;
+}
+
+/* ── Noise overlay ── */
+body::before {
+  content: '';
+  position: fixed;
+  inset: 0;
+  background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.03'/%3E%3C/svg%3E");
+  pointer-events: none;
+  z-index: 9999;
+  opacity: 0.35;
+}
+
+/* ── Scrollbar ── */
+::-webkit-scrollbar { width: 4px; }
+::-webkit-scrollbar-track { background: #05050a; }
+::-webkit-scrollbar-thumb { background: #c445f0; border-radius: 2px; }
+
+/* ── Selection ── */
+::selection { background: #c445f0; color: #fff; }
+
+/* ── Glow utilities ── */
+.glow-ember  { text-shadow: 0 0 20px #ff5c1a88, 0 0 40px #ff5c1a44; }
+.glow-plasma { text-shadow: 0 0 20px #c445f088, 0 0 50px #c445f044; }
+.glow-ice    { text-shadow: 0 0 20px #3ae8ff88; }
+
+.box-glow-ember  { box-shadow: 0 0 30px #ff5c1a44, inset 0 0 20px #ff5c1a11; }
+.box-glow-plasma { box-shadow: 0 0 40px #c445f044, inset 0 0 20px #c445f011; }
