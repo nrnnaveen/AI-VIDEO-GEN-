@@ -64,7 +64,9 @@ def _cleanup_job(job_id: str, delay: float = _JOB_CLEANUP_DELAY):
             job = jobs.pop(job_id, None)
         if job and job.get("video_path"):
             shutil.rmtree(Path(job["video_path"]).parent, ignore_errors=True)
-    threading.Timer(delay, _remove).start()
+    t = threading.Timer(delay, _remove)
+    t.daemon = True
+    t.start()
 
 
 def _worker():
@@ -93,7 +95,15 @@ def _worker():
             _job_queue.task_done()
 
 
-threading.Thread(target=_worker, daemon=True).start()
+@app.on_event("startup")
+async def _startup():
+    """Start the background job-worker thread after the server has bound its port."""
+    try:
+        t = threading.Thread(target=_worker, daemon=True, name="job-worker")
+        t.start()
+        print("✔ Background worker thread started")
+    except Exception as exc:
+        print(f"WARNING: could not start worker thread: {exc}")
 
 
 # ─── Schemas ───────────────────────────────────────────────────────────────
