@@ -1,7 +1,8 @@
 """
 FastAPI backend — text → frames → MP4
 """
-import os, io, uuid, shutil, subprocess, tempfile
+import os, io, uuid, shutil, subprocess, tempfile, asyncio
+from contextlib import asynccontextmanager
 from pathlib import Path
 from typing import Optional
 
@@ -34,7 +35,18 @@ def get_pipe():
     return _pipe
 
 
-app = FastAPI(title="AI Video Generator API", version="1.0.0")
+# ─── Startup ───────────────────────────────────────────────────────────────
+
+@asynccontextmanager
+async def lifespan(app: FastAPI):
+    """Pre-load the Stable Diffusion pipeline on startup so the first
+    user request is not delayed by model downloading/initialisation.
+    Runs in a thread pool to avoid blocking the async event loop."""
+    await asyncio.to_thread(get_pipe)
+    yield
+
+
+app = FastAPI(title="AI Video Generator API", version="1.0.0", lifespan=lifespan)
 
 app.add_middleware(
     CORSMiddleware,
