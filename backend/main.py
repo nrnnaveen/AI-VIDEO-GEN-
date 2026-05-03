@@ -1,8 +1,7 @@
 """
 FastAPI backend — text → frames → MP4
 """
-import asyncio
-import os, io, uuid, shutil, subprocess, tempfile
+import os, uuid, shutil, subprocess, tempfile, threading, queue
 from pathlib import Path
 from typing import Optional
 
@@ -46,6 +45,55 @@ app.add_middleware(
 
 OUTPUT_DIR = Path(tempfile.gettempdir()) / "aivid_outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
+
+_JOB_CLEANUP_DELAY = 600.0  # seconds until completed job files are removed
+
+# ─── Background job queue ──────────────────────────────────────────────────
+
+# jobs: job_id -> {"status": "queued"|"processing"|"done"|"failed",
+#                  "video_path": str|None, "error": str|None}
+jobs: dict = {}
+_jobs_lock = threading.Lock()
+_job_queue: queue.Queue = queue.Queue()
+
+
+def _cleanup_job(job_id: str, delay: float = _JOB_CLEANUP_DELAY):
+    """Schedule removal of a job and its output files after `delay` seconds."""
+    def _remove():
+        with _jobs_lock:
+            job = jobs.pop(job_id, None)
+        if job and job.get("video_path"):
+            shutil.rmtree(Path(job["video_path"]).parent, ignore_errors=True)
+    threading.Timer(delay, _remove).start()
+
+
+def _worker():
+    """Single background thread that processes jobs one at a time."""
+    while True:
+        job_id, req = _job_queue.get()
+        with _jobs_lock:
+            jobs[job_id]["status"] = "processing"
+        work_dir = OUTPUT_DIR / job_id
+        work_dir.mkdir(parents=True, exist_ok=True)
+        try:
+            generate_frames(req, work_dir)
+            out_video = work_dir / "output.mp4"
+            frames_to_video(work_dir, out_video, req.fps)
+            with _jobs_lock:
+                jobs[job_id]["status"] = "done"
+                jobs[job_id]["video_path"] = str(out_video)
+            _cleanup_job(job_id)
+        except Exception as exc:
+            shutil.rmtree(work_dir, ignore_errors=True)
+            with _jobs_lock:
+                jobs[job_id]["status"] = "failed"
+                jobs[job_id]["error"] = str(exc)
+            _cleanup_job(job_id)
+        finally:
+            _job_queue.task_done()
+
+
+threading.Thread(target=_worker, daemon=True).start()
 
 
 # ─── Schemas ───────────────────────────────────────────────────────────────
@@ -128,25 +176,32 @@ def health():
 
 @app.post("/generate")
 async def generate(req: GenerateRequest):
-    job_id  = uuid.uuid4().hex[:10]
-    work_dir = OUTPUT_DIR / job_id
-    work_dir.mkdir(parents=True)
+    job_id = uuid.uuid4().hex[:10]
+    with _jobs_lock:
+        jobs[job_id] = {"status": "queued", "video_path": None, "error": None}
+    _job_queue.put((job_id, req))
+    return {"job_id": job_id, "status": "queued"}
 
-    loop = asyncio.get_running_loop()
-    try:
-        await loop.run_in_executor(None, generate_frames, req, work_dir)
-        out_video = work_dir / "output.mp4"
-        await loop.run_in_executor(None, frames_to_video, work_dir, out_video, req.fps)
 
-        return FileResponse(
-            path=str(out_video),
-            media_type="video/mp4",
-            filename=f"aivid_{job_id}.mp4",
-            headers={"X-Job-Id": job_id},
-        )
-    except Exception as exc:
-        shutil.rmtree(work_dir, ignore_errors=True)
-        raise HTTPException(status_code=500, detail=str(exc))
+@app.get("/result/{job_id}")
+async def result(job_id: str):
+    with _jobs_lock:
+        job = jobs.get(job_id)
+        if job is not None:
+            job = dict(job)  # snapshot to avoid holding the lock while streaming
+    if job is None:
+        raise HTTPException(status_code=404, detail="Job not found")
+    if job["status"] == "failed":
+        return {"status": "failed", "error": job.get("error") or "Generation failed"}
+    if job["status"] in ("queued", "processing"):
+        return {"status": job["status"]}
+    # done — stream the video file
+    return FileResponse(
+        path=str(job["video_path"]),
+        media_type="video/mp4",
+        filename=f"aivid_{job_id}.mp4",
+        headers={"X-Job-Id": job_id},
+    )
 
 
 # ─── Hugging Face Spaces compatibility wrapper ─────────────────────────────
