@@ -1,6 +1,7 @@
 """
 FastAPI backend — text → frames → MP4
 """
+import asyncio
 import os, io, uuid, shutil, subprocess, tempfile
 from pathlib import Path
 from typing import Optional
@@ -126,15 +127,16 @@ def health():
 
 
 @app.post("/generate")
-def generate(req: GenerateRequest):
+async def generate(req: GenerateRequest):
     job_id  = uuid.uuid4().hex[:10]
     work_dir = OUTPUT_DIR / job_id
     work_dir.mkdir(parents=True)
 
+    loop = asyncio.get_running_loop()
     try:
-        frames = generate_frames(req, work_dir)
+        await loop.run_in_executor(None, generate_frames, req, work_dir)
         out_video = work_dir / "output.mp4"
-        frames_to_video(work_dir, out_video, req.fps)
+        await loop.run_in_executor(None, frames_to_video, work_dir, out_video, req.fps)
 
         return FileResponse(
             path=str(out_video),
