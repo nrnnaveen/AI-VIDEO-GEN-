@@ -26,6 +26,7 @@ export default function Home() {
     setError(null);
 
     try {
+      // Submit the job — returns immediately with a job_id
       const res = await fetch(`${API}/generate`, {
         method:  'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -43,10 +44,33 @@ export default function Home() {
         throw new Error(body.detail ?? `Server error ${res.status}`);
       }
 
-      const blob = await res.blob();
-      const url  = URL.createObjectURL(blob);
-      setVideoUrl(url);
-      setPhase('done');
+      const { job_id } = await res.json();
+
+      // Poll /result/{job_id} until the video is ready (max 5 minutes)
+      const MAX_POLLS = 120;
+      for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
+        if (attempt > 0) {
+          await new Promise(r => setTimeout(r, 2500));
+        }
+        const poll = await fetch(`${API}/result/${job_id}`);
+        if (!poll.ok) {
+          const body = await poll.json().catch(() => ({}));
+          throw new Error(body.detail ?? `Server error ${poll.status}`);
+        }
+        const ct = poll.headers.get('content-type') ?? '';
+        if (ct.startsWith('video/')) {
+          const blob = await poll.blob();
+          setVideoUrl(URL.createObjectURL(blob));
+          setPhase('done');
+          return;
+        }
+        const data = await poll.json();
+        if (data.status === 'failed') {
+          throw new Error(data.error ?? 'Generation failed');
+        }
+        // status is 'queued' or 'processing' — keep polling
+      }
+      throw new Error('Generation timed out — please try again');
     } catch (e: unknown) {
       setError(e instanceof Error ? e.message : String(e));
       setPhase('error');
