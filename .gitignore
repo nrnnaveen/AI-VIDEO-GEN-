@@ -18,3 +18,4 @@ Thumbs.db
 # Outputs
 *.mp4
 *.zip
+frontend/tsconfig.tsbuildinfo

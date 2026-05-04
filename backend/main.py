@@ -1,16 +1,23 @@
 """
 FastAPI backend — text → frames → MP4
 """
+import logging
 import os, uuid, shutil, subprocess, tempfile, threading, queue
 from pathlib import Path
 from typing import Optional
 
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
-from fastapi.responses import FileResponse
+from fastapi.responses import FileResponse, JSONResponse
 from pydantic import BaseModel, Field
 from PIL import Image
 import torch
+
+logging.basicConfig(
+    level=logging.INFO,
+    format="%(asctime)s %(levelname)s [%(name)s] %(message)s",
+)
+logger = logging.getLogger("aivid")
 
 # ─── Lazy-load pipeline to avoid cold-start crash on CPU ───────────────────
 _pipe = None
@@ -41,6 +48,7 @@ app.add_middleware(
     allow_origins=["*"],
     allow_methods=["*"],
     allow_headers=["*"],
+    expose_headers=["Content-Type", "Content-Disposition", "X-Job-Id"],
 )
 
 OUTPUT_DIR = Path(tempfile.gettempdir()) / "aivid_outputs"
@@ -71,8 +79,10 @@ def _cleanup_job(job_id: str, delay: float = _JOB_CLEANUP_DELAY):
 
 def _worker():
     """Single background thread that processes jobs one at a time."""
+    logger.info("Worker thread ready")
     while True:
         job_id, req = _job_queue.get()
+        logger.info("[%s] starting — prompt=%r", job_id, req.prompt[:80])
         with _jobs_lock:
             jobs[job_id]["status"] = "processing"
         work_dir = OUTPUT_DIR / job_id
@@ -84,8 +94,10 @@ def _worker():
             with _jobs_lock:
                 jobs[job_id]["status"] = "done"
                 jobs[job_id]["video_path"] = str(out_video)
+            logger.info("[%s] done → %s", job_id, out_video)
             _cleanup_job(job_id)
         except Exception as exc:
+            logger.exception("[%s] failed: %s", job_id, exc)
             shutil.rmtree(work_dir, ignore_errors=True)
             with _jobs_lock:
                 jobs[job_id]["status"] = "failed"
@@ -101,9 +113,9 @@ async def _startup():
     try:
         t = threading.Thread(target=_worker, daemon=True, name="job-worker")
         t.start()
-        print("✔ Background worker thread started")
+        logger.info("✔ Background worker thread started")
     except Exception as exc:
-        print(f"WARNING: could not start worker thread: {exc}")
+        logger.warning("Could not start worker thread: %s", exc)
 
 
 # ─── Schemas ───────────────────────────────────────────────────────────────
@@ -179,6 +191,12 @@ def frames_to_video(frames_dir: Path, output_path: Path, fps: int):
 
 # ─── Routes ────────────────────────────────────────────────────────────────
 
+@app.get("/")
+def root():
+    """Root health-check endpoint (used by Render and load-balancers)."""
+    return {"status": "ok", "service": "AI Video Generator API"}
+
+
 @app.get("/health")
 def health():
     return {"status": "ok", "gpu": torch.cuda.is_available()}
@@ -202,9 +220,15 @@ async def result(job_id: str):
     if job is None:
         raise HTTPException(status_code=404, detail="Job not found")
     if job["status"] == "failed":
-        return {"status": "failed", "error": job.get("error") or "Generation failed"}
+        return JSONResponse(
+            content={"status": "failed", "error": job.get("error") or "Generation failed"},
+            media_type="application/json",
+        )
     if job["status"] in ("queued", "processing"):
-        return {"status": job["status"]}
+        return JSONResponse(
+            content={"status": job["status"]},
+            media_type="application/json",
+        )
     # done — stream the video file
     return FileResponse(
         path=str(job["video_path"]),
