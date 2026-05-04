@@ -25,38 +25,66 @@ export default function Home() {
     setVideoUrl(null);
     setError(null);
 
-    try {
-      // Submit the job — returns immediately with a job_id
-      const res = await fetch(`${API}/generate`, {
-        method:  'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          prompt,
-          num_frames: frames,
-          fps,
-          num_inference_steps: 25,
-          guidance_scale: 7.5,
-        }),
-      });
+    const RETRY_DELAY_MS = 2000;
+    const MAX_TRANSIENT_ERRORS = 3;
 
-      if (!res.ok) {
-        const body = await res.json().catch(() => ({}));
-        throw new Error(body.detail ?? `Server error ${res.status}`);
+    try {
+      // Submit the job with retry on transient network / cold-start failures
+      let res: Response | null = null;
+      for (let attempt = 0; attempt < 3; attempt++) {
+        if (attempt > 0) await new Promise(r => setTimeout(r, RETRY_DELAY_MS * attempt));
+        try {
+          res = await fetch(`${API}/generate`, {
+            method:  'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              prompt,
+              num_frames: frames,
+              fps,
+              num_inference_steps: 25,
+              guidance_scale: 7.5,
+            }),
+          });
+          // Stop retrying if response is definitive (not a transient server error)
+          if (res.ok || (res.status !== 502 && res.status !== 503 && res.status !== 504)) break;
+        } catch {
+          if (attempt === 2) throw new Error('Failed to reach the server. Is the backend running?');
+        }
+      }
+
+      if (!res || !res.ok) {
+        const body = await res?.json().catch(() => ({})) ?? {};
+        throw new Error(body.detail ?? `Server error ${res?.status ?? 'unknown'}`);
       }
 
       const { job_id } = await res.json();
 
       // Poll /result/{job_id} until the video is ready (max 5 minutes)
       const MAX_POLLS = 120;
+      let transientErrors = 0;
       for (let attempt = 0; attempt < MAX_POLLS; attempt++) {
         if (attempt > 0) {
           await new Promise(r => setTimeout(r, 2500));
         }
-        const poll = await fetch(`${API}/result/${job_id}`);
+        let poll: Response;
+        try {
+          poll = await fetch(`${API}/result/${job_id}`);
+        } catch {
+          // Network error (e.g. Render cold-start) — retry up to MAX_TRANSIENT_ERRORS times
+          transientErrors++;
+          if (transientErrors > MAX_TRANSIENT_ERRORS) throw new Error('Lost connection to the server.');
+          continue;
+        }
         if (!poll.ok) {
+          // Transient gateway errors — retry instead of failing immediately
+          if ((poll.status === 502 || poll.status === 503 || poll.status === 504) && transientErrors < MAX_TRANSIENT_ERRORS) {
+            transientErrors++;
+            continue;
+          }
           const body = await poll.json().catch(() => ({}));
           throw new Error(body.detail ?? `Server error ${poll.status}`);
         }
+        transientErrors = 0; // reset on successful response
         const ct = poll.headers.get('content-type') ?? '';
         if (ct.startsWith('video/')) {
           const blob = await poll.blob();
