@@ -94,8 +94,9 @@ app.add_middleware(
 OUTPUT_DIR = Path(tempfile.gettempdir()) / "aivid_outputs"
 OUTPUT_DIR.mkdir(parents=True, exist_ok=True)
 
-_JOB_CLEANUP_DELAY = 600.0   # seconds until completed job files are removed
-_JOB_TIMEOUT       = 600.0   # seconds before an in-flight job is force-failed
+_JOB_CLEANUP_DELAY  = 600.0   # seconds until completed job files are removed
+_JOB_TIMEOUT        = 600.0   # seconds before an in-flight job is force-failed (same value, independent knob)
+_FFMPEG_STDERR_TAIL = 800     # bytes of ffmpeg stderr to include in error messages
 
 # ─── Background job queue ──────────────────────────────────────────────────
 
@@ -193,10 +194,12 @@ def _worker():
                 _job_queue.task_done()
                 _free_memory()
 
-        except BaseException as fatal:
-            # Catch SystemExit / KeyboardInterrupt / anything else so the
-            # thread loop never exits and the server stays running.
-            logger.exception("Worker caught fatal exception — continuing: %s", fatal)
+        except Exception as fatal:
+            # Catch-all so the worker loop never exits due to an unexpected
+            # exception (e.g. a bug in the job-dispatch path above).
+            # SystemExit / KeyboardInterrupt are intentionally NOT caught here
+            # so that graceful server shutdown still works correctly.
+            logger.exception("Worker caught unexpected exception — continuing: %s", fatal)
             _free_memory()
 
 
@@ -269,7 +272,7 @@ class GenerateRequest(BaseModel):
     negative_prompt: Optional[str] = "blurry, low quality, distorted, ugly"
     num_frames: int = Field(default=6, ge=4, le=8)
     guidance_scale: float = Field(default=7.5, ge=1.0, le=20.0)
-    num_inference_steps: int = Field(default=15, ge=5, le=50)  # lower default to save memory
+    num_inference_steps: int = Field(default=15, ge=5, le=50)  # reduced from 25 to save ~40% memory; trade-off is slightly lower quality
     fps: int = Field(default=8, ge=4, le=24)
 
 
@@ -341,7 +344,7 @@ def frames_to_video(frames_dir: Path, output_path: Path, fps: int):
     logger.info("ffmpeg command: %s", " ".join(cmd))
     proc = subprocess.run(cmd, capture_output=True, text=True)
     if proc.returncode != 0:
-        raise RuntimeError(f"ffmpeg error: {proc.stderr[-800:]}")
+        raise RuntimeError(f"ffmpeg error: {proc.stderr[-_FFMPEG_STDERR_TAIL:]}")
     logger.info("ffmpeg finished OK (%d bytes)", output_path.stat().st_size)
 
 
@@ -413,7 +416,7 @@ async def result(job_id: str):
     # status == "done" — stream the video file
     video_path = job.get("video_path")
     if not video_path or not Path(video_path).exists():
-        raise HTTPException(status_code=410, detail="Video file no longer available")
+        raise HTTPException(status_code=410, detail="Video file has been cleaned up (files are retained for 10 minutes after generation)")
     return FileResponse(
         path=video_path,
         media_type="video/mp4",
