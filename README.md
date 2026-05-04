@@ -47,10 +47,25 @@ npx vercel --prod
 
 ## Environment Variables
 
+### Local development
+
 Create `frontend/.env.local`:
 ```
-NEXT_PUBLIC_API_URL=https://your-backend.onrender.com
+NEXT_PUBLIC_API_URL=http://localhost:8000
 ```
+
+### Production (Vercel)
+
+Set the environment variable in the Vercel dashboard, or rely on the `vercel.json`
+`build.env` entry which is already configured to point at the Render backend:
+
+```
+NEXT_PUBLIC_API_URL=https://ai-video-gen-5c2k.onrender.com
+```
+
+> **Note:** `NEXT_PUBLIC_API_URL` must be available at **build time** so that
+> Next.js can embed it in the client bundle.  The `build.env` block in
+> `frontend/vercel.json` sets this automatically on every Vercel deployment.
 
 ## Prompt Templates
 | Template      | Prompt hint                                       |

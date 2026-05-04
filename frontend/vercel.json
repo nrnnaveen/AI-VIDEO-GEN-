@@ -4,6 +4,11 @@
   "devCommand": "npm run dev",
   "installCommand": "npm install",
   "outputDirectory": ".next",
+  "build": {
+    "env": {
+      "NEXT_PUBLIC_API_URL": "https://ai-video-gen-5c2k.onrender.com"
+    }
+  },
   "env": {
     "NEXT_PUBLIC_API_URL": "https://ai-video-gen-5c2k.onrender.com"
   }
