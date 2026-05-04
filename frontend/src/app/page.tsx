@@ -14,6 +14,7 @@ export default function Home() {
   const [prompt,   setPrompt]   = useState('');
   const [phase,    setPhase]    = useState<Phase>('idle');
   const [videoUrl, setVideoUrl] = useState<string | null>(null);
+  const [jobId,    setJobId]    = useState<string | null>(null);
   const [error,    setError]    = useState<string | null>(null);
   const [frames,   setFrames]   = useState(6);
   const [fps,      setFps]      = useState(8);
@@ -23,6 +24,7 @@ export default function Home() {
     if (!prompt.trim()) { inputRef.current?.focus(); return; }
     setPhase('generating');
     setVideoUrl(null);
+    setJobId(null);
     setError(null);
 
     const RETRY_DELAY_MS = 2000;
@@ -58,6 +60,7 @@ export default function Home() {
       }
 
       const { job_id } = await res.json();
+      setJobId(job_id);
 
       // Poll /result/{job_id} until the video is ready (max 5 minutes)
       const MAX_POLLS = 120;
@@ -189,8 +192,8 @@ export default function Home() {
       )}
 
       {/* ── Video player ── */}
-      {phase === 'done' && videoUrl && (
-        <VideoPlayer url={videoUrl} prompt={prompt} />
+      {phase === 'done' && videoUrl && jobId && (
+        <VideoPlayer url={videoUrl} prompt={prompt} jobId={jobId} />
       )}
 
       {/* ── Footer ── */}

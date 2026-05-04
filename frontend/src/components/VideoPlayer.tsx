@@ -1,9 +1,30 @@
 'use client';
 
-interface Props { url: string; prompt: string; }
+const API = process.env.NEXT_PUBLIC_API_URL ?? 'http://localhost:8000';
 
-export default function VideoPlayer({ url, prompt }: Props) {
+interface Props { url: string; prompt: string; jobId: string; }
+
+export default function VideoPlayer({ url, prompt, jobId }: Props) {
   const slug = prompt.slice(0, 30).replace(/\s+/g, '_').replace(/[^a-zA-Z0-9_]/g, '');
+
+  async function handleDownload() {
+    try {
+      const res = await fetch(`${API}/result/${jobId}`);
+      if (!res.ok) {
+        alert('Download failed — the video may have expired. Please generate again.');
+        return;
+      }
+      const blob = await res.blob();
+      const blobUrl = URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = blobUrl;
+      a.download = `frameforge_${slug}.mp4`;
+      a.click();
+      URL.revokeObjectURL(blobUrl);
+    } catch {
+      alert('Download failed — please check your connection and try again.');
+    }
+  }
 
   return (
     <div className="animate-reveal w-full max-w-2xl flex flex-col gap-4">
@@ -39,13 +60,12 @@ export default function VideoPlayer({ url, prompt }: Props) {
       </p>
 
       {/* Download */}
-      <a
-        href={url}
-        download={`frameforge_${slug}.mp4`}
+      <button
+        onClick={handleDownload}
         className="self-center flex items-center gap-2 px-8 py-3 rounded-xl border border-ember/50 text-ember font-mono text-sm tracking-widest uppercase hover:bg-ember/10 hover:border-ember/80 transition-all duration-200 hover:scale-105 active:scale-95"
       >
         ↓  Download MP4
-      </a>
+      </button>
     </div>
   );
 }
