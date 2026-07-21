@@ -76,4 +76,3 @@ NEXT_PUBLIC_API_URL=https://ai-video-gen-5c2k.onrender.com
 | Space Drift   | Slow drift through a nebula, deep space           |
 
 ---
-MIT License © 2024
