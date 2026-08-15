@@ -1,4 +1,4 @@
-# 🎬 Free AI Video Generator
+# 🎬 Free AI Video Generator - ...
 
 Turn a text prompt into a short cinematic video — completely free and open-source.
 
@@ -63,9 +63,7 @@ Set the environment variable in the Vercel dashboard, or rely on the `vercel.jso
 NEXT_PUBLIC_API_URL=https://ai-video-gen-5c2k.onrender.com
 ```
 
-> **Note:** `NEXT_PUBLIC_API_URL` must be available at **build time** so that
-> Next.js can embed it in the client bundle.  The `build.env` block in
-> `frontend/vercel.json` sets this automatically on every Vercel deployment.
+
 
 ## Prompt Templates
 | Template      | Prompt hint                                       |
