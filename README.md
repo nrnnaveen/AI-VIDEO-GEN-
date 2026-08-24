@@ -2,15 +2,6 @@
 
 Turn a text prompt into a short cinematic video — completely free and open-source.
 
-## Stack
-| Layer    | Technology                              |
-|----------|-----------------------------------------|
-| Frontend | Next.js 14 + Tailwind CSS               |
-| Backend  | FastAPI + Diffusers (Stable Diffusion)  |
-| Frames   | Pillow                                  |
-| Video    | ffmpeg                                  |
-| Deploy   | Vercel (frontend) · Render/HF (backend) |
-
 ## Quick Start
 
 ### Backend
@@ -74,3 +65,5 @@ NEXT_PUBLIC_API_URL=https://ai-video-gen-5c2k.onrender.com
 | Space Drift   | Slow drift through a nebula, deep space           |
 
 ---
+
+--Naveen M
